@@ -16,7 +16,7 @@ Download historical data for cryptocurrencies from binance.
    ![list-symbols](./images/list-symbols.png)
 
 ## How to use:
-1. Download crypto-data binary from [releases](https://github.com/cckn1ght/crypto-data/releases/tag/v1)
+1. Download crypto-data binary from [releases](https://github.com/cckn1ght/crypto-data/releases)
 2. Grant execute permission to the binary:
 
 ```$ chmod +x crypto-data```
