@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use crate::constants;
 use crate::constants::{HEADERS, KLINE_LIMIT};
@@ -42,8 +42,19 @@ pub fn encode_candle(candles: Vec<Candle>) -> Vec<Vec<String>> {
     ]).collect::<Vec<Vec<String>>>()
 }
 
-pub fn create_csv_file(fetch_props: FetchProps, data: Vec<Candle>, init_start_time: i64) {
+pub fn create_csv_file(fetch_props: FetchProps, data: Vec<Candle>, init_start_time: i64) -> Result<(), Box<dyn std::error::Error>> {
     let csv_content = encode_candle(data);
+    let p = csv_file_path(&fetch_props, init_start_time);
+    let mut wtr = csv::Writer::from_path(p).unwrap();
+    wtr.write_record(HEADERS.to_vec()).unwrap();
+    for candle in csv_content {
+        wtr.write_record(candle).unwrap();
+    }
+    wtr.flush().unwrap();
+    Ok(())
+}
+
+fn csv_file_path(fetch_props: &FetchProps, init_start_time: i64) -> PathBuf {
     let filename = format!(
         "{}_{}_{}_{}_{}.csv",
         fetch_props.symbol,
@@ -52,13 +63,7 @@ pub fn create_csv_file(fetch_props: FetchProps, data: Vec<Candle>, init_start_ti
         init_start_time,
         fetch_props.end_time
     );
-    let p = Path::join(Path::new(&fetch_props.director), filename.as_str());
-    let mut wtr = csv::Writer::from_path(p).unwrap();
-    wtr.write_record(HEADERS.to_vec()).unwrap();
-    for candle in csv_content {
-        wtr.write_record(candle).unwrap();
-    }
-    wtr.flush().unwrap();
+    Path::join(Path::new(&fetch_props.director), filename.as_str())
 }
 
 // pub fn interval_to_milliseconds(interval: &str) -> u64 {
@@ -103,11 +108,6 @@ pub fn create_csv_file(fetch_props: FetchProps, data: Vec<Candle>, init_start_ti
 //     date_str.split(' ').collect::<Vec<&str>>()[0].to_string()
 // }
 
-pub fn get_historical_candlesticks(fetch_props: FetchProps) {
-    let candles: Vec<Candle> = vec![];
-    let start_time = fetch_props.start_time;
-    do_get_historical_candlesticks(fetch_props, candles, start_time)
-}
 
 pub fn get_historical_candlesticks_for_symbols(fetch_props: FetchProps, symbols: Vec<String>) {
     let total = symbols.len();
@@ -123,11 +123,80 @@ pub fn get_historical_candlesticks_for_symbols(fetch_props: FetchProps, symbols:
             end_time: fetch_props.end_time,
             director: fetch_props.director.clone(),
         };
-        get_historical_candlesticks(props);
-        pb.println(format!("[+] finished {}", symbol));
-        pb.inc(1);
+        let p = csv_file_path(&props, fetch_props.start_time);
+        if p.exists() {
+            pb.println(format!("[+] {} already exists, skipping...", symbol));
+            pb.inc(1);
+            continue;
+        }
+
+        // Retry up to 3 times
+        for _ in 0..3 {
+            match get_historical_candlesticks(props.clone()) {
+                Ok(_) => {
+                    pb.println(format!("[+] finished {}", symbol));
+                    pb.inc(1);
+                    break;
+                }
+                Err(e) => {
+                    eprintln!("Error fetching historical candlesticks for {}: {}. Retrying...", symbol, e);
+                }
+            }
+        }
     }
     pb.finish_with_message("done");
+}
+
+fn get_historical_candlesticks(fetch_props: FetchProps) -> Result<(), Box<dyn std::error::Error>> {
+    let candles: Vec<Candle> = vec![];
+    let start_time = fetch_props.start_time;
+    do_get_historical_candlesticks(fetch_props, candles, start_time)
+}
+
+fn do_get_historical_candlesticks(fetch_props: FetchProps, mut candles: Vec<Candle>, init_start_time: i64) -> Result<(), Box<dyn std::error::Error>>{
+    if fetch_props.start_time > fetch_props.end_time {
+        panic!("Start time cannot be greater than end time");
+    }
+    let url = format!("{}{}", fetch_props.api_base_url, generate_query_string(fetch_props.clone()));
+
+    let res = reqwest::blocking::get(&url);
+    match res {
+        Ok(response) => {
+            // rewrite this: handle error if re.json() is not ok
+            let new_candles: Vec<Candle> = response.json().expect(format!("Can not get klines for {}", fetch_props.symbol).as_str());
+
+            let is_finished = new_candles.len() < KLINE_LIMIT;
+            // Merge the newly fetched candles with the existing ones
+
+            if is_finished {
+                candles.extend(new_candles);
+                create_csv_file(fetch_props.clone(), candles, init_start_time)
+            } else {
+                let last_candle = new_candles.last().cloned().unwrap();
+                candles.extend(new_candles);
+                let last_candle_start_time = last_candle.0;
+                candles.pop();
+                // create_csv_file(fetch_props.clone(), new_candles);
+                let fetch_props_clone = fetch_props.clone();
+                do_get_historical_candlesticks(FetchProps {
+                    api_base_url: fetch_props_clone.api_base_url,
+                    market: fetch_props_clone.market,
+                    contract_type: fetch_props_clone.contract_type,
+                    symbol: fetch_props_clone.symbol,
+                    interval: fetch_props_clone.interval,
+                    start_time: last_candle_start_time,
+                    end_time: fetch_props_clone.end_time,
+                    director: fetch_props_clone.director,
+                }, candles, init_start_time)
+            }
+        }
+        Err(e) => {
+            eprintln!("Error fetching historical candlesticks for {}: {}", fetch_props.symbol, e);
+            Err(Box::new(e))
+        }
+        
+    }
+
 }
 
 pub fn get_trading_symbols(api_base_url: String) -> Vec<String> {
@@ -147,41 +216,6 @@ pub fn get_trading_symbols(api_base_url: String) -> Vec<String> {
 }
 
 // translate to Rust:
-fn do_get_historical_candlesticks(fetch_props: FetchProps, mut candles: Vec<Candle>, init_start_time: i64) {
-    if fetch_props.start_time > fetch_props.end_time {
-        panic!("Start time cannot be greater than end time");
-    }
-    let url = format!("{}{}", fetch_props.api_base_url, generate_query_string(fetch_props.clone()));
-
-    let res = reqwest::blocking::get(&url).expect("Error connecting binance api");
-    // rewrite this: handle error if re.json() is not ok
-    let new_candles: Vec<Candle> = res.json().expect(format!("Can not get klines for {}", fetch_props.symbol).as_str());
-
-    let is_finished = new_candles.len() < KLINE_LIMIT;
-    // Merge the newly fetched candles with the existing ones
-
-    if is_finished {
-        candles.extend(new_candles);
-        create_csv_file(fetch_props.clone(), candles, init_start_time);
-    } else {
-        let last_candle = new_candles.last().cloned().unwrap();
-        candles.extend(new_candles);
-        let last_candle_start_time = last_candle.0;
-        candles.pop();
-        // create_csv_file(fetch_props.clone(), new_candles);
-        let fetch_props_clone = fetch_props.clone();
-        do_get_historical_candlesticks(FetchProps {
-            api_base_url: fetch_props_clone.api_base_url,
-            market: fetch_props_clone.market,
-            contract_type: fetch_props_clone.contract_type,
-            symbol: fetch_props_clone.symbol,
-            interval: fetch_props_clone.interval,
-            start_time: last_candle_start_time,
-            end_time: fetch_props_clone.end_time,
-            director: fetch_props_clone.director,
-        }, candles, init_start_time);
-    }
-}
 pub fn parse_date_time(date_string: &str) -> Result<DateTime<Utc>, &'static str> {
     // Try to parse as Unix timestamp
     if let Ok(timestamp) = date_string.parse::<i64>() {
@@ -202,7 +236,7 @@ mod tests {
     // use crate::constants::{INTERVALS, SPOT_API_BASE_URL};
     // use crate::types::FetchProps;
     // use crate::{constants, utils};
-    // 
+    //
     // #[test]
     // fn it_works() {
     //     let props = FetchProps {

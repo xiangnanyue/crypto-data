@@ -71,8 +71,8 @@ fn main() {
             let d = director.clone().unwrap_or(".".to_string());
             let p = Path::new(&d);
             if !p.exists() {
-                println!("Director {} does not exist.", fs::canonicalize(p).unwrap().to_str().unwrap());
-                return;
+                fs::create_dir_all(p).unwrap();
+                println!("Created directory: {}", fs::canonicalize(p).unwrap().to_str().unwrap())
             }
             let end_datetime = match end_time {
                 Some(end_time) => utils::parse_date_time(end_time).unwrap(),
@@ -98,7 +98,8 @@ fn main() {
                 let symbols = utils::get_trading_symbols(api_base_url);
                 utils::get_historical_candlesticks_for_symbols(fetch_props, symbols);
             } else {
-                utils::get_historical_candlesticks_for_symbols(fetch_props, (*symbols).clone());
+                let uppercased_symbols = symbols.iter().map(|s| s.to_uppercase()).collect::<Vec<String>>();
+                utils::get_historical_candlesticks_for_symbols(fetch_props, uppercased_symbols);
             }
         }
     }
