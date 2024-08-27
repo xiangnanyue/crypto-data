@@ -42,7 +42,7 @@ pub const HEADERS: [&str; 11] = [
     "Low",
     "Close",
     "Volume",
-    "Close",
+    "CloseTime",
     "Quote_Asset_Volume",
     "Number_Of_Trades",
     "Taker_Buy_Base_Asset_Volume",
