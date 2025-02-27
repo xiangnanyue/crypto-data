@@ -27,8 +27,8 @@ pub struct ExchangeInfo {
     pub rate_limits: Option<Vec<RateLimit>>,
     pub server_time: Option<i64>,
     pub assets: Option<Vec<Asset>>,
-    pub symbols: Vec<Symbol>,
-    pub timezone: String,
+    pub symbols: Option<Vec<Symbol>>,
+    pub timezone: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
