@@ -24,8 +24,8 @@ pub struct FetchPropsAction {
 #[serde(rename_all = "camelCase")]
 pub struct ExchangeInfo {
     pub exchange_filters: Option<Vec<Value>>,
-    pub rate_limits: Vec<RateLimit>,
-    pub server_time: i64,
+    pub rate_limits: Option<Vec<RateLimit>>,
+    pub server_time: Option<i64>,
     pub assets: Option<Vec<Asset>>,
     pub symbols: Vec<Symbol>,
     pub timezone: String,
