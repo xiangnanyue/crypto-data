@@ -202,8 +202,6 @@ fn do_get_historical_candlesticks(fetch_props: FetchProps, mut candles: Vec<Cand
 pub fn get_trading_symbols(api_base_url: String) -> Vec<String> {
     let url = format!("{}{}", api_base_url, "exchangeInfo");
     let res = reqwest::blocking::get(&url).unwrap();
-    let text = res.text().unwrap();
-    eprintln!("API 响应: {}", text);
     let exchange_info: ExchangeInfo = res.json().unwrap();
     let symbols = exchange_info.symbols;
     let symbols_list = symbols.iter()
